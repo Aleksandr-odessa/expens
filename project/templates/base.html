@@ -3,6 +3,12 @@
   <head>
     <title>{% block meta_title %}Expenses app{% endblock %}</title>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+      <!--connect plugin "tablesorter " for sorting by category or date (ascending and descending)  -->
+{% load static %}
+    <script type="text/javascript" src = "{% static 'expens/js/tablesorter/jquery-latest.js'%}"></script>
+    <script type="text/javascript" src = "{% static 'expens/js/tablesorter/jquery.tablesorter.js'%}"></script>
+      <script type="text/javascript" src = "{% static 'expens/js/script.js' %}"></script>
+
   </head>
   <body>
 	<a href="{% url 'expenses:expense-list' %}">Expenses</a> | 

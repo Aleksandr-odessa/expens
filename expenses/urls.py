@@ -50,4 +50,12 @@ urlpatterns = [
             template_name='generic_delete.html'
          ),
          name='category-delete'),
+    # update view for `expenses.Category`.
+    path('category/<int:pk>/update', UpdateView.as_view(
+            model=Category,
+            fields = ['name'],
+            success_url=reverse_lazy('expenses:category-list'),
+            template_name='generic_update.html'
+         ),
+         name='category-update'),
 ]

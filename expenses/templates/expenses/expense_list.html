@@ -8,8 +8,9 @@
   {{form.as_p}}
   <button type="submit">search</button>
 </form>
+
 <br>
-<table border="1">
+<table id = "sorting" border="1">
 	<caption>Expenses</caption>
 	<thead>
 	  <tr>
@@ -25,7 +26,7 @@
 
 	{% for obj in object_list %}
 	  <tr>
-		<td>{{ page_obj.start_index|add:forloop.counter0 }}.</td>
+		<td>{{ page_obj.start_index|add:forloop.counter0 }}</td>
 		<td>{{ obj.category|default:"-" }}</td>
 		<td>{{ obj.name|default:"-" }}</td>
 		<td>{{ obj.amount|floatformat:2 }}</td>
@@ -54,6 +55,23 @@
 		<td>{{total|floatformat:2}}</td>
 	</tr>
 	{% endfor %}
-  </tr>
+
 </table>
+
+<!-- add views  total amount spent. -->
+	<p> Total amount spent: {{total|floatformat:2}}</p>
+
+
+<table border="1">
+  <caption>Summary per year-month</caption>
+  <tr>
+    {% for category, total in summary_per_date.items %}
+	<tr>
+		<td>{{category}}:</td>
+		<td>{{total|floatformat:2}}</td>
+	</tr>
+	{% endfor %}
+
+</table>
+
 {% endblock %}
