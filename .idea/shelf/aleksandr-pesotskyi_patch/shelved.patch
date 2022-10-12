@@ -1,0 +1,411 @@
+Index: project/templates/base.html
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/project/templates/base.html b/project/templates/base.html
+--- a/project/templates/base.html	
++++ b/project/templates/base.html	
+@@ -3,6 +3,12 @@
+   <head>
+     <title>{% block meta_title %}Expenses app{% endblock %}</title>
+     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
++      <!--connect plugin "tablesorter " for sorting by category or date (ascending and descending)  -->
++{% load static %}
++    <script type="text/javascript" src = "{% static 'expens/js/tablesorter/jquery-latest.js'%}"></script>
++    <script type="text/javascript" src = "{% static 'expens/js/tablesorter/jquery.tablesorter.js'%}"></script>
++      <script type="text/javascript" src = "{% static 'expens/js/script.js' %}"></script>
++
+   </head>
+   <body>
+ 	<a href="{% url 'expenses:expense-list' %}">Expenses</a> | 
+Index: expenses/templates/expenses/category_list.html
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/expenses/templates/expenses/category_list.html b/expenses/templates/expenses/category_list.html
+--- a/expenses/templates/expenses/category_list.html	
++++ b/expenses/templates/expenses/category_list.html	
+@@ -3,10 +3,12 @@
+ {% block content %}
+ <a href="{% url 'expenses:category-create' %}">add</a>
+ 
++
+ <table border="1">
+ 	<thead>
+ 		<tr>
+ 			<th>name</th>
++			<th>count</th>
+ 			<th>actions</th>
+ 		</tr>
+ 	</thead>
+@@ -16,11 +18,22 @@
+ 			<td>
+ 				{{obj.name}}
+ 			</td>
++			<td></td>
+ 			<td>
+ 				<a href="{% url 'expenses:category-delete' obj.id %}">delete</a>
++				<a href="{% url 'expenses:category-update' obj.id %}">update</a>
+ 			</td>
+ 		</tr>
+ 		{% endfor %}
++<tr>
++	    {% for category, total in count_per_category.items %}
++
++			<tr>
++		<td>{{category}}:</td>
++		<td>{{total|floatformat:0}}</td>
++	</tr>
++	{% endfor %}
+ 	</tbody>
+ </table>
++<hr>
+ {% endblock %}
+Index: expenses/templates/expenses/expense_list.html
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/expenses/templates/expenses/expense_list.html b/expenses/templates/expenses/expense_list.html
+--- a/expenses/templates/expenses/expense_list.html	
++++ b/expenses/templates/expenses/expense_list.html	
+@@ -8,8 +8,9 @@
+   {{form.as_p}}
+   <button type="submit">search</button>
+ </form>
++
+ <br>
+-<table border="1">
++<table id = "sorting" border="1">
+ 	<caption>Expenses</caption>
+ 	<thead>
+ 	  <tr>
+@@ -25,7 +26,7 @@
+ 
+ 	{% for obj in object_list %}
+ 	  <tr>
+-		<td>{{ page_obj.start_index|add:forloop.counter0 }}.</td>
++		<td>{{ page_obj.start_index|add:forloop.counter0 }}</td>
+ 		<td>{{ obj.category|default:"-" }}</td>
+ 		<td>{{ obj.name|default:"-" }}</td>
+ 		<td>{{ obj.amount|floatformat:2 }}</td>
+@@ -54,6 +55,23 @@
+ 		<td>{{total|floatformat:2}}</td>
+ 	</tr>
+ 	{% endfor %}
+-  </tr>
++
++</table>
++
++<!-- add views  total amount spent. -->
++	<p> Total amount spent: {{total|floatformat:2}}</p>
++
++
++<table border="1">
++  <caption>Summary per year-month</caption>
++  <tr>
++    {% for category, total in summary_per_date.items %}
++	<tr>
++		<td>{{category}}:</td>
++		<td>{{total|floatformat:2}}</td>
++	</tr>
++	{% endfor %}
++
+ </table>
++
+ {% endblock %}
+Index: expenses/forms.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/expenses/forms.py b/expenses/forms.py
+--- a/expenses/forms.py	
++++ b/expenses/forms.py	
+@@ -1,12 +1,24 @@
+ from django import forms
+-from .models import Expense
++from .models import Expense, Category
+ 
+ 
+-class ExpenseSearchForm(forms.ModelForm):
++class ExpenseSearchForm(forms.ModelForm, forms.Form):
+     class Meta:
+         model = Expense
+         fields = ('name',)
+ 
++    # adding title choice for category
++    title_choice =Category.objects.all().values_list()
++
++    # adding field strart date for search on form
++    date_start = forms.DateField(required=False, label='Date from')
++    # adding field finish date for search on form
++    date_finish = forms.DateField(required=False, label='Date to')
++    # adding field category for searching by multiple categories.
++    category = forms.MultipleChoiceField(required=False, choices=title_choice)
++
+     def __init__(self, *args, **kwargs):
+         super().__init__(*args, **kwargs)
+         self.fields['name'].required = False
++
++
+Index: expenses/reports.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/expenses/reports.py b/expenses/reports.py
+--- a/expenses/reports.py	
++++ b/expenses/reports.py	
+@@ -1,16 +1,42 @@
+ from collections import OrderedDict
+-
+-from django.db.models import Sum, Value
++from django.db.models import Sum, Value, Count
+ from django.db.models.functions import Coalesce
++from django.db.models.functions import TruncMonth
+ 
+ 
+ def summary_per_category(queryset):
+     return OrderedDict(sorted(
+-        queryset
+-        .annotate(category_name=Coalesce('category__name', Value('-')))
++        queryset.annotate(category_name=Coalesce('category__name', Value('-')))
+         .order_by()
+         .values('category_name')
+         .annotate(s=Sum('amount'))
+         .values_list('category_name', 's')
+     ))
+ 
++
++# function calculates the sum spent
++def summa(queryset):  #
++    return queryset.aggregate(sum=Sum('amount')).get("sum")
++
++# function calculates the total summary per year-month.
++def summary_per_date(queryset):
++    return OrderedDict(sorted(
++        queryset
++        .annotate(date_month=TruncMonth('date'))
++        .order_by()
++        .values('date_month')
++        .annotate(s=Sum('amount'))
++        .values_list('date_month', 's')
++    ))
++
++# function calculates number of expenses per category row in category list.
++def count_per_category(queryset):
++
++
++    return OrderedDict(sorted(
++        queryset.annotate(category_name=Coalesce('category__name', Value('-')))
++        .order_by()
++        .values('category_name')
++        .annotate(s=Count('amount'))
++        .values_list('category_name', 's')
++    ))
+Index: project/settings.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/project/settings.py b/project/settings.py
+--- a/project/settings.py	
++++ b/project/settings.py	
+@@ -11,6 +11,7 @@
+ """
+ 
+ from pathlib import Path
++import os
+ 
+ # Build paths inside the project like this: BASE_DIR / 'subdir'.
+ BASE_DIR = Path(__file__).resolve().parent.parent
+@@ -118,6 +119,9 @@
+ 
+ STATIC_URL = 'static/'
+ 
++STATIC_DIRS =[
++    os.path.join(BASE_DIR, 'static'),]
++
+ # Default primary key field type
+ # https://docs.djangoproject.com/en/4.0/ref/settings/#default-auto-field
+ 
+Index: expenses/urls.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/expenses/urls.py b/expenses/urls.py
+--- a/expenses/urls.py	
++++ b/expenses/urls.py	
+@@ -50,4 +50,12 @@
+             template_name='generic_delete.html'
+          ),
+          name='category-delete'),
++    # update view for `expenses.Category`.
++    path('category/<int:pk>/update', UpdateView.as_view(
++            model=Category,
++            fields = ['name'],
++            success_url=reverse_lazy('expenses:category-list'),
++            template_name='generic_update.html'
++         ),
++         name='category-update'),
+ ]
+Index: expenses/views.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/expenses/views.py b/expenses/views.py
+--- a/expenses/views.py	
++++ b/expenses/views.py	
+@@ -1,8 +1,9 @@
+ from django.views.generic.list import ListView
+-
+ from .forms import ExpenseSearchForm
+ from .models import Expense, Category
+-from .reports import summary_per_category
++# import functions summa, summary_per_date
++from .reports import summary_per_category, summa, summary_per_date, count_per_category
++
+ 
+ 
+ class ExpenseListView(ListView):
+@@ -15,16 +16,46 @@
+         form = ExpenseSearchForm(self.request.GET)
+         if form.is_valid():
+             name = form.cleaned_data.get('name', '').strip()
++            # adding field start date  in form for
++            date_start = form.cleaned_data.get('date_start')
++            # adding field finish date  in form
++            date_finish = form.cleaned_data.get('date_finish')
++            # adding field "category" in form
++            category = form.cleaned_data.get('category')
+             if name:
++                print(name)
+                 queryset = queryset.filter(name__icontains=name)
++                # block date search
++            elif date_start:
++                if date_finish:
++                    # search from ... to...
++                    queryset = queryset.filter(date__range=(date_start, date_finish))
++                else:
++                    # single date search
++                    queryset = queryset.filter(date=date_start)
++            # block category search
++            elif category:
++                queryset = queryset.filter(category__in=category)
+ 
+         return super().get_context_data(
+             form=form,
+             object_list=queryset,
+             summary_per_category=summary_per_category(queryset),
++            # adding a function that calculates the sum spent
++            total=summa(queryset),
++            # adding a function sum by date
++            summary_per_date=summary_per_date(queryset),
+             **kwargs)
+ 
++
++
+ class CategoryListView(ListView):
+     model = Category
+     paginate_by = 5
+ 
++    def get_context_data(self, *, object_list=None, **kwargs):
++        queryset= Expense.objects.all().values('category_id', "name")
++        return super().get_context_data(
++                count_per_category = count_per_category(queryset),
++                **kwargs)
++
+Index: .idea/workspace.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/workspace.xml b/.idea/workspace.xml
+--- a/.idea/workspace.xml	
++++ b/.idea/workspace.xml	
+@@ -3,6 +3,14 @@
+   <component name="ChangeListManager">
+     <list default="true" id="dd66a81c-78d6-4f3f-b88b-aa09e5bdc6c5" name="Changes" comment="start">
+       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/expenses/forms.py" beforeDir="false" afterPath="$PROJECT_DIR$/expenses/forms.py" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/expenses/reports.py" beforeDir="false" afterPath="$PROJECT_DIR$/expenses/reports.py" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/expenses/templates/expenses/category_list.html" beforeDir="false" afterPath="$PROJECT_DIR$/expenses/templates/expenses/category_list.html" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/expenses/templates/expenses/expense_list.html" beforeDir="false" afterPath="$PROJECT_DIR$/expenses/templates/expenses/expense_list.html" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/expenses/urls.py" beforeDir="false" afterPath="$PROJECT_DIR$/expenses/urls.py" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/expenses/views.py" beforeDir="false" afterPath="$PROJECT_DIR$/expenses/views.py" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/project/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/project/settings.py" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/project/templates/base.html" beforeDir="false" afterPath="$PROJECT_DIR$/project/templates/base.html" afterDir="false" />
+     </list>
+     <option name="SHOW_DIALOG" value="false" />
+     <option name="HIGHLIGHT_CONFLICTS" value="true" />
+@@ -12,7 +20,7 @@
+   <component name="Git.Settings">
+     <option name="RECENT_BRANCH_BY_REPOSITORY">
+       <map>
+-        <entry key="$PROJECT_DIR$" value="master" />
++        <entry key="$PROJECT_DIR$" value="Pesotskyi-Aleksandr2" />
+       </map>
+     </option>
+     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+@@ -53,7 +61,14 @@
+       <option name="project" value="LOCAL" />
+       <updated>1665436307590</updated>
+     </task>
+-    <option name="localTasksCounter" value="2" />
++    <task id="LOCAL-00002" summary="start">
++      <created>1665436659098</created>
++      <option name="number" value="00002" />
++      <option name="presentableId" value="LOCAL-00002" />
++      <option name="project" value="LOCAL" />
++      <updated>1665436659098</updated>
++    </task>
++    <option name="localTasksCounter" value="3" />
+     <servers />
+   </component>
+   <component name="Vcs.Log.Tabs.Properties">
+@@ -63,13 +78,40 @@
+           <value>
+             <State>
+               <option name="BEK_SORT_TYPE" value="1" />
++              <option name="FILTERS">
++                <map>
++                  <entry key="branch">
++                    <value>
++                      <list>
++                        <option value="master" />
++                      </list>
++                    </value>
++                  </entry>
++                </map>
++              </option>
+             </State>
+           </value>
+         </entry>
+       </map>
+     </option>
++    <option name="RECENT_FILTERS">
++      <map>
++        <entry key="Branch">
++          <value>
++            <list>
++              <RecentGroup>
++                <option name="FILTER_VALUES">
++                  <option value="master" />
++                </option>
++              </RecentGroup>
++            </list>
++          </value>
++        </entry>
++      </map>
++    </option>
+   </component>
+   <component name="VcsManagerConfiguration">
++    <MESSAGE value="start1" />
+     <MESSAGE value="start" />
+     <option name="LAST_COMMIT_MESSAGE" value="start" />
+   </component>
