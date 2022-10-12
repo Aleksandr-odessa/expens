@@ -31,16 +31,9 @@ def summary_per_date(queryset):
 
 # function calculates number of expenses per category row in category list.
 def count_per_category(queryset):
-    b = queryset.annotate(category_name=Coalesce('category__name', Value('-'))).order_by()\
-        .values('category_name')
-    c = b.values_list('category_name', 'category_id')
-    d = b.annotate(s=Count('amount'))
-    e = d.values_list('category_name', 's')
-
-    # print(f'b={b}')
-    # print(f'c={c}')
-    # print(f'd={d}')
-    # print(f'e={e}')
-    a = OrderedDict(sorted(e))
-    return a
+      return OrderedDict(sorted(queryset
+                                .annotate(category_name=Coalesce('category__name', Value('-')))
+                                .order_by()
+                                .values('category_name').annotate(s=Count('amount'))
+                                .values_list('category_name', 's')))
 
