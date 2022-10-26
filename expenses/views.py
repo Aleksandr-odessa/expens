@@ -62,13 +62,3 @@ class CategoryListView(ListView):
                                                **kwargs)
         # print(context)
         return context
-
-
-            # queryset= Expense.objects.all().values('category_id', "name")
-         # context = super().get_context_data(self, *, object_list=None, **kwargs)
-         #     (count_per_category = count_per_category(queryset),
-         #                              **kwargs)
-         # # print(s['count_per_category'])
-         # # print(s['category_list'])
-         # # print(s)
-         # return context
